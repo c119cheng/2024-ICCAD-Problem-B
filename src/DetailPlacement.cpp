@@ -84,10 +84,10 @@ void DetailPlacement::GlobalSwap(){
         size_t ff_critical = 0;
         size_t target_critical = 0;
         for(auto& curFF : ff->getFFPtr()->getClusterFF()){
-            ff_critical += 1 + curFF->getNextStage().size();
+            ff_critical += 1 + curFF->getNextStageCriticalPath().size();
         }
         for(auto& curFF : legalizer->ffs[nearestPoint.second]->getFFPtr()->getClusterFF()){
-            target_critical += 1 + curFF->getNextStage().size();
+            target_critical += 1 + curFF->getNextStageCriticalPath().size();
         }
 
         // The nearest point to swap will not improve the TNS
@@ -218,14 +218,11 @@ void DetailPlacement::DetailAssignmentMBFF(){
                     cost[idx][j] = newSlack < 0 ? -newSlack : 0;
 
                     // Q pin cost
-                    for(auto& nextFF : curFF->getNextStage()){
+                    for(auto& nextFF : curFF->getNextStageCriticalPath()){
                         Coor originalInput = curFF->getOriginalQ();
                         Coor newInput = newFF->getNewCoor() + newFF->getPinCoor("Q" + pinName);
                         if(nextFF.outputGate){
-                            inputCoor = nextFF.outputGate->getCoor() + nextFF.outputGate->getPinCoor(nextFF.pinName);
-                            double old_hpwl = HPWL(inputCoor, originalInput);
-                            double new_hpwl = HPWL(inputCoor, newInput);
-                            delta_hpwl = old_hpwl - new_hpwl;
+                            cost[idx][j] += nextFF.ff->getMoveTNS(nextFF.pathID, newInput);
                         }
                         else{
                             Coor newCoorD;
@@ -233,9 +230,9 @@ void DetailPlacement::DetailAssignmentMBFF(){
                             double old_hpwl = HPWL(nextFF.ff->getOriginalD(), originalInput);
                             double new_hpwl = HPWL(newCoorD, newInput);
                             delta_hpwl = old_hpwl - new_hpwl;
+                            newSlack = (curFF->getOriginalQpinDelay() - newFF->getCell()->getQpinDelay()) + nextFF.ff->getTimingSlack("D") + mgr.DisplacementDelay * delta_hpwl;
+                            cost[idx][j] += newSlack < 0 ? -newSlack : 0;
                         }
-                        newSlack = (curFF->getOriginalQpinDelay() - newFF->getCell()->getQpinDelay()) + nextFF.ff->getTimingSlack("D") + mgr.DisplacementDelay * delta_hpwl;
-                        cost[idx][j] += newSlack < 0 ? -newSlack : 0;
                     }
                 }
             }
@@ -267,9 +264,18 @@ void DetailPlacement::DetailAssignmentMBFF(){
             // update slotMap
             for(size_t slotI=0;slotI<querySize;slotI++)
                 slotMap[FFsMap[slotI]] = newSlotMap[slotI];
-        }
-    }
 
+            // update critical path
+            for(size_t i=0;i<FFs.size();i++){
+                FF* curFF = FFs[i];
+                for(size_t j=0;j<curFF->nextStage.size();j++){
+                    if(curFF->nextStage[j].outputGate != nullptr) // is not shift register
+                        curFF->nextStage[j].ff->updatePathCost(curFF->nextStage[j].pathID);
+                }
+            }
+        }
+
+    }
 }
 
 void DetailPlacement::ChangeCell(){

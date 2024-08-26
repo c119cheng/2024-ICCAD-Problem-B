@@ -11,7 +11,6 @@ FF::FF() : Instance(){
     isShifting = true;
     clkIdx = UNSET_IDX;
     isLegalize = false;
-    prevStage = {nullptr, nullptr, ""};
     prevInstance = {nullptr, CellType::IO, ""};
     fixed = true;
 }
@@ -24,7 +23,6 @@ FF::FF(int size) : Instance(), clusterFF(size, nullptr){
     isShifting = true;
     clkIdx = UNSET_IDX;
     isLegalize = false;
-    prevStage = {nullptr, nullptr, ""};
     prevInstance = {nullptr, CellType::IO, ""};
     fixed = true;
 }
@@ -84,8 +82,9 @@ void FF::setIsShifting(bool shift){
     this->isShifting = shift;
 }
 
-void FF::setPrevStage(PrevStage inputStage){
-    this->prevStage = inputStage;
+void FF::addPrevStage(PrevStage inputStage){
+    this->prevFF.push_back(new PrevStage(inputStage));
+    pathPQ.push(prevFF[prevFF.size()-1]);
 }
 
 void FF::setPrevInstance(PrevInstance inputInstance){
@@ -124,6 +123,15 @@ void FF::setOriginalCoor(const Coor& coorD, const Coor& coorQ){
 void FF::setOriginalQpinDelay(double in){
     this->originalQpinDelay = in;
 }
+
+void FF::setOriginalSlack(double slack){
+    this->originalSlack = slack;
+}
+
+void FF::setOriginalPathCost(double cost){
+    this->originalCriticalPathCost = cost;
+}
+
 
 // Getter
 double FF::getTimingSlack(const std::string &pinName)const{
@@ -178,8 +186,8 @@ bool FF::getIsShifting()const{
     return isShifting;
 }
 
-PrevStage FF::getPrevStage()const{
-    return this->prevStage;
+const vector<PrevStage*>& FF::getPrevStage()const{
+    return prevFF;
 }
 
 PrevInstance FF::getPrevInstance()const{
@@ -188,6 +196,20 @@ PrevInstance FF::getPrevInstance()const{
 
 std::vector<NextStage> FF::getNextStage()const{
     return this->nextStage;
+}
+
+std::vector<NextStage> FF::getNextStageCriticalPath(){
+    if(nextStageCriticalPathDirty){
+        nextStageCriticalPath.clear();
+        nextStageCriticalPathDirty = false;
+        for(size_t i=0;i<nextStage.size();i++){
+            NextStage next = nextStage[i];
+            if(next.outputGate == nullptr || next.ff->isCriticalPath(next.pathID)){
+                nextStageCriticalPath.push_back(next);
+            }
+        }
+    }
+    return nextStageCriticalPath;
 }
 
 Coor FF::getOriginalD()const{
@@ -200,6 +222,14 @@ Coor FF::getOriginalQ()const{
 
 double FF::getOriginalQpinDelay()const{
     return originalQpinDelay;
+}
+
+double FF::getOriginalSlack()const{
+    return originalSlack;
+}
+
+double FF::getOriginalPathCost()const{
+    return originalCriticalPathCost;
 }
 
 FF* FF::getPhysicalFF()const{
@@ -298,7 +328,7 @@ void FF::clear(){
     TimingSlack.clear();
     clusterFF.clear();
     NeighborFFs.clear();
-    prevStage = {nullptr, nullptr, ""};
+    prevFF.clear();
     prevInstance = {nullptr, CellType::IO, ""};
     nextStage.clear();
     physicalFF = nullptr;
@@ -317,6 +347,17 @@ std::ostream &operator<<(std::ostream &os, const FF &ff){
 /**
  * @brief 
  * 
+ * @return the current critical path, also set in FF
+*/
+PrevStage FF::getCriticalPath(){
+    curCriticalPath = *pathPQ.top();
+    curCriticalPathCost = curCriticalPath.curCost;
+    return curCriticalPath;
+}
+
+/**
+ * @brief 
+ * 
  * @return double slack, the value of the slack, positive is positive, negative is negative
  */
 double FF::getSlack(){
@@ -324,7 +365,6 @@ double FF::getSlack(){
     // update slack for new location
     Coor newCoorD = this->physicalFF->getNewCoor() + this->physicalFF->getPinCoor("D" + this->getPhysicalPinName());
     double delta_hpwl = 0;
-    double delta_q = 0; // delta q pin delay
     Coor inputCoor;
     // D pin delta HPWL
     PrevInstance prevInstance = cur_ff->getPrevInstance();
@@ -352,22 +392,13 @@ double FF::getSlack(){
     }
 
     // Q pin delta HPWL (prev stage FFs Qpin)
-    const PrevStage& prev = cur_ff->getPrevStage();
-    if(prev.ff){
-        Coor originalInput, newInput;
-
-        FF* inputFF = prev.ff;
-        originalInput = inputFF->getOriginalQ();
-        newInput = inputFF->physicalFF->getNewCoor() + inputFF->physicalFF->getPinCoor("Q" + inputFF->getPhysicalPinName());
-        delta_q = inputFF->getOriginalQpinDelay() - inputFF->physicalFF->getCell()->getQpinDelay();
-        
-        inputCoor = prev.outputGate->getCoor() + prev.outputGate->getPinCoor(prev.pinName);
-        double old_hpwl = HPWL(inputCoor, originalInput);
-        double new_hpwl = HPWL(inputCoor, newInput);
-        delta_hpwl += old_hpwl - new_hpwl;
+    double prevCost = 0;
+    if(prevFF.size()!=0){
+        this->getCriticalPath();
+        prevCost = originalCriticalPathCost - curCriticalPathCost;
     }
     // get new slack
-    double newSlack = cur_ff->getTimingSlack("D") + (delta_q) + FF::DisplacementDelay * delta_hpwl;
+    double newSlack = originalSlack + prevCost + FF::DisplacementDelay * delta_hpwl;
     return newSlack;
 }
 
@@ -399,7 +430,7 @@ std::vector<std::pair<Coor, double>> FF::getCriticalCoor(){
         coorList.push_back({inputCoor, curFF->getSlack()});
 
         // Q pin
-        for(auto& next : curFF->getNextStage()){
+        for(auto& next : curFF->getNextStageCriticalPath()){
             Coor outputCoor;
             if(next.outputGate){
                 outputCoor = next.outputGate->getCoor() + next.outputGate->getPinCoor(next.pinName);
@@ -416,7 +447,7 @@ std::vector<std::pair<Coor, double>> FF::getCriticalCoor(){
 size_t FF::getCriticalSize(){
     size_t num = 0;
     for(auto& curFF : clusterFF)
-        num += 1 + curFF->getNextStage().size();
+        num += 1 + curFF->getNextStageCriticalPath().size();
     return num;
 }
 
@@ -424,7 +455,7 @@ double FF::getAllSlack(){
     double slack = 0;
     for(auto& curFF : clusterFF){
         slack += curFF->getSlack();
-        for(auto& next : curFF->getNextStage())
+        for(auto& next : curFF->getNextStageCriticalPath())
             slack += next.ff->getSlack();
     }
     return slack;
@@ -438,10 +469,125 @@ double FF::getCost(){
     for(auto& curFF : clusterFF){
         double slack = curFF->getSlack();
         timingCost += slack < 0 ? -slack : 0;
-        for(auto& next : curFF->getNextStage()){
-            slack = next.ff->getSlack();
-            timingCost += slack < 0 ? -slack : 0;
+        for(auto& next : curFF->getNextStageCriticalPath()){
+            if(next.outputGate == nullptr || next.ff->isCriticalPath(next.pathID)){ // only consider slack of shift register or critical path
+                slack = next.ff->getSlack();
+                timingCost += slack < 0 ? -slack : 0;
+            }
         }
     }
     return FF::alpha * timingCost + FF::beta * powerCost + FF::gamma * areaCost;
+}
+
+bool FF::isCriticalPath(size_t id){
+    return prevFF[id] == pathPQ.top();
+}
+
+void FF::updateAllCriticalPath(){
+    #pragma omp parallel for num_threads(MAX_THREADS)
+    for(size_t i=0;i<clusterFF.size();i++){
+        FF* curFF = clusterFF[i];
+        curFF->updateSelfCriticalPath();
+    }
+    nextStageCriticalPathDirty = true;
+}
+
+void FF::updateAllNextCriticalPath(){
+    #pragma omp parallel for num_threads(MAX_THREADS)
+    for(size_t i=0;i<clusterFF.size();i++){
+        FF* curFF = clusterFF[i];
+        curFF->updateNextStageCriticalPath();
+    }
+    nextStageCriticalPathDirty = true;
+}
+
+void FF::updateSelfCriticalPath(){
+    FF* curFF = this;
+    bool dirty = false;
+    #pragma omp parallel for num_threads(MAX_THREADS)
+    for(size_t idx=0;idx<curFF->prevFF.size();idx++){
+        PrevStage* p = prevFF[idx];
+        if(p->ff == nullptr){ // IO -> FF, cost never change
+            continue;
+        }
+        double newCost = p->originalCost 
+            + FF::DisplacementDelay * HPWL(p->ff->getPhysicalFF()->getNewCoor() + p->ff->getPhysicalFF()->getCell()->getPinCoor("Q" + p->ff->getPhysicalPinName()),
+                        p->outputGateCoor)
+            + p->ff->getPhysicalFF()->getCell()->getQpinDelay();
+        if(newCost != p->curCost){
+            p->curCost = newCost;
+            if(newCost > pathPQ.top()->curCost || p == pathPQ.top()) // only update pq when is critical path or its cost is larger
+                dirty = true;
+        }
+    }
+    if(dirty)
+        curFF->pathPQ.update();
+}
+
+void FF::updateNextStageCriticalPath(){
+    #pragma omp parallel for num_threads(MAX_THREADS)
+    for(size_t i=0;i<clusterFF.size();i++){
+        FF* curFF = clusterFF[i];
+        for(size_t j=0;j<curFF->nextStage.size();j++){
+            if(curFF->nextStage[j].outputGate != nullptr) // is not shift register
+                curFF->nextStage[j].ff->updatePathCost(curFF->nextStage[j].pathID);
+        }
+    }
+}
+
+void FF::updatePathCost(size_t idx){
+    PrevStage* p = prevFF[idx];
+    double newCost = p->originalCost 
+        + FF::DisplacementDelay * HPWL(p->ff->getPhysicalFF()->getNewCoor() + p->ff->getPhysicalFF()->getCell()->getPinCoor("Q" + p->ff->getPhysicalPinName()),
+                    p->outputGateCoor)
+        + p->ff->getPhysicalFF()->getCell()->getQpinDelay();
+    if(newCost != p->curCost){
+        p->curCost = newCost;
+        if(newCost > pathPQ.top()->curCost || p == pathPQ.top()) // only update pq when is critical path or its cost is larger
+            pathPQ.update();
+    }
+}
+
+double FF::getMoveTNS(size_t id, Coor newQCoor){
+    PrevStage* p = prevFF[id];
+    double newCost = p->originalCost 
+        + FF::DisplacementDelay * HPWL(newQCoor, p->outputGateCoor)
+        + p->ff->getPhysicalFF()->getCell()->getQpinDelay();
+    double slack;
+
+    FF* cur_ff = this;
+    // update slack for new location
+    Coor newCoorD = this->physicalFF->getNewCoor() + this->physicalFF->getPinCoor("D" + this->getPhysicalPinName());
+    double delta_hpwl = 0;
+    Coor inputCoor;
+    // D pin delta HPWL
+    PrevInstance prevInstance = cur_ff->getPrevInstance();
+    if(prevInstance.instance){
+        if(prevInstance.cellType == CellType::IO){
+            inputCoor = prevInstance.instance->getCoor();
+            double old_hpwl = HPWL(inputCoor, cur_ff->getOriginalD());
+            double new_hpwl = HPWL(inputCoor, newCoorD);
+            delta_hpwl += old_hpwl - new_hpwl;
+        }
+        else if(prevInstance.cellType == CellType::GATE){
+            inputCoor = prevInstance.instance->getCoor() + prevInstance.instance->getPinCoor(prevInstance.pinName);
+            double old_hpwl = HPWL(inputCoor, cur_ff->getOriginalD());
+            double new_hpwl = HPWL(inputCoor, newCoorD);
+            delta_hpwl += old_hpwl - new_hpwl;
+        }
+        else{
+            FF* inputFF = dynamic_cast<FF*>(prevInstance.instance);
+            inputCoor = inputFF->getOriginalQ();
+            Coor newCoorQ = inputFF->physicalFF->getNewCoor() + inputFF->physicalFF->getPinCoor("Q" + inputFF->getPhysicalPinName());
+            double old_hpwl = HPWL(inputCoor, cur_ff->getOriginalD());
+            double new_hpwl = HPWL(newCoorQ, newCoorD);
+            delta_hpwl += old_hpwl - new_hpwl;
+        }
+    }
+
+    if(newCost > pathPQ.top()->curCost)
+        slack = originalSlack + originalCriticalPathCost - newCost + FF::DisplacementDelay * delta_hpwl;
+    else
+        slack = 0;
+    return slack < 0 ? -slack : 0;
 }

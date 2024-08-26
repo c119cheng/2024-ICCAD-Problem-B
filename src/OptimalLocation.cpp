@@ -5,181 +5,7 @@ objFunction::objFunction(Manager&mgr, std::unordered_map<std::string, FF*>& FF_l
     x_pos(totalFF), x_neg(totalFF), 
     y_pos(totalFF), y_neg(totalFF),
     FFs(FFs){
-    gamma = (mgr.die.getDieBorder().x - mgr.die.getDieOrigin().x) * 0.01;
-}
-
-preprocessObjFunction::preprocessObjFunction(Manager&mgr, std::unordered_map<std::string, FF*>& FF_list, std::unordered_map<string, int>& idx_map, int totalFF, std::vector<FF*>& FFs)
-    : objFunction(mgr, FF_list, idx_map, totalFF, FFs){
-    grad_ = std::vector<Coor>(FFs.size());
-    for(size_t i=0;i<FFs.size();i++){
-        size_t size = FFs[i]->getNextStage().size() + 1;
-        x_pos[i] = std::vector<double>(size);
-        x_neg[i] = std::vector<double>(size);
-        y_pos[i] = std::vector<double>(size);
-        y_neg[i] = std::vector<double>(size);
-    }
-}
-
-preprocessObjFunction::~preprocessObjFunction(){
-
-}
-
-/**
- * @brief build log sum exp hpwl approximate model
- * 
- * @return double the loss of the log sum exp model
- */
-double preprocessObjFunction::forward(){
-    loss = 0;
-    //for(auto& FF_m : FF_list){
-    #pragma omp parallel for num_threads(MAX_THREADS)
-    for(size_t i=0;i<FFs.size();i++){
-        FF* cur_ff = FFs[i];
-        size_t net=0;
-        Coor curCoor = cur_ff->getOriginalD();
-        // input net
-        if(cur_ff->getInputInstances().size() >= 1){
-            assert(cur_ff->getInputInstances().size() == 1 && "FF input should only drive by one instance");
-            std::string inputInstanceName = cur_ff->getInputInstances()["D"][0].first;
-            std::string inputPinName = cur_ff->getInputInstances()["D"][0].second;
-            Coor inputCoor;
-            if(mgr.IO_Map.count(inputInstanceName)){
-                inputCoor = mgr.IO_Map[inputInstanceName].getCoor();
-            }
-            else if(mgr.Gate_Map.count(inputInstanceName)){
-                inputCoor = mgr.Gate_Map[inputInstanceName]->getCoor() + mgr.Gate_Map[inputInstanceName]->getPinCoor(inputPinName);
-            }
-            else{
-                inputCoor = FF_list[inputInstanceName]->getOriginalQ();
-            }
-            x_pos[i][net] = exp( inputCoor.x / gamma) + exp( curCoor.x / gamma);
-            x_neg[i][net] = exp(-inputCoor.x / gamma) + exp(-curCoor.x / gamma);
-            y_pos[i][net] = exp( inputCoor.y / gamma) + exp( curCoor.y / gamma);
-            y_neg[i][net] = exp(-inputCoor.y / gamma) + exp(-curCoor.y / gamma);
-            loss += log(x_pos[i][net]) + log(x_neg[i][net]) + log(y_pos[i][net]) + log(y_neg[i][net]);
-            net++;
-        }
-        else{
-            x_pos[i][net] = 0;
-            x_neg[i][net] = 0;
-            y_pos[i][net] = 0;
-            y_neg[i][net] = 0;
-            loss += 0;
-            net++;  
-        }
-        // output net
-        const std::vector<NextStage>& nextStage = cur_ff->getNextStage();
-        if(nextStage.size()){
-            for(auto& next_p : nextStage){
-                std::string outputInstanceName;
-                if(next_p.outputGate)
-                    outputInstanceName = next_p.outputGate->getInstanceName();
-                else // shift register
-                    outputInstanceName = next_p.ff->getInstanceName();
-                std::string outputPinName = next_p.pinName;
-                curCoor = cur_ff->getOriginalQ();
-                Coor outputCoor;
-                if(mgr.IO_Map.count(outputInstanceName)){
-                    outputCoor = mgr.IO_Map[outputInstanceName].getCoor();
-                }
-                else if(mgr.Gate_Map.count(outputInstanceName)){
-                    outputCoor = mgr.Gate_Map[outputInstanceName]->getCoor() + mgr.Gate_Map[outputInstanceName]->getPinCoor(outputPinName);
-                }
-                else{
-                    outputCoor = FF_list[outputInstanceName]->getOriginalD();
-                }
-                x_pos[i][net] = exp( outputCoor.x / gamma) + exp( curCoor.x / gamma);
-                x_neg[i][net] = exp(-outputCoor.x / gamma) + exp(-curCoor.x / gamma);
-                y_pos[i][net] = exp( outputCoor.y / gamma) + exp( curCoor.y / gamma);
-                y_neg[i][net] = exp(-outputCoor.y / gamma) + exp(-curCoor.y / gamma);
-                loss += log(x_pos[i][net]) + log(x_neg[i][net]) + log(y_pos[i][net]) + log(y_neg[i][net]);
-                net++;
-            }
-        }
-    }
-    return loss;
-}
-
-/**
- * @brief Do partial derivative to get the gradient from the log sum exp model
- * 
- * @param step What does step actually do in this function?? @chengc119
- * @param onlyNegative 
- * @return std::vector<Coor>& 
- */
-vector<Coor>& preprocessObjFunction::backward(int step, bool onlyNegative){
-    for(size_t i=0;i<grad_.size();i++){
-        grad_[i].x = 0;
-        grad_[i].y = 0;
-    }
-    #pragma omp parallel for num_threads(MAX_THREADS)
-    for(size_t i=0;i<FFs.size();i++){
-        FF* cur_ff = FFs[i];
-        size_t net=0;
-        // weigt by slack
-        const std::vector<NextStage>& nextStage = cur_ff->getNextStage();
-        std::vector<double> weight(1 + nextStage.size());
-        getWeight(cur_ff, weight);
-
-        // net of D pin
-        Coor curCoor = cur_ff->getOriginalD();
-        if(cur_ff->getInputInstances().size() >= 1){
-            grad_[i].x += weight[0] * ((exp(curCoor.x / gamma) / x_pos[i][net]) - (exp(-curCoor.x / gamma) / x_neg[i][net]));
-            grad_[i].y += weight[0] * ((exp(curCoor.y / gamma) / y_pos[i][net]) - (exp(-curCoor.y / gamma) / y_neg[i][net]));  
-        } 
-        net++;
-        // net of Q pin
-        curCoor = cur_ff->getOriginalQ();
-        for(size_t j=1;j<weight.size();j++){
-            grad_[i].x += weight[j] * ((exp(curCoor.x / gamma) / x_pos[i][net]) - (exp(-curCoor.x / gamma) / x_neg[i][net]));
-            grad_[i].y += weight[j] * ((exp(curCoor.y / gamma) / y_pos[i][net]) - (exp(-curCoor.y / gamma) / y_neg[i][net])); 
-            net++;
-        }
-    }
-    return grad_;
-}
-
-/**
- * @brief set the weight of the input pin and the output pin of the cur_ff
- * 
- * @param cur_ff the ff to calculate the input/output pin
- * @param weight the reference of the weight vectpr to set
- */
-void preprocessObjFunction::getWeight(FF* cur_ff, std::vector<double>& weight){
-    // weigt by slack
-    double D_slack = cur_ff->getTimingSlack("D");
-    const std::vector<NextStage>& nextStage = cur_ff->getNextStage();
-    double sum = 0.0000001;
-    // get total
-    bool hasNegative = false;
-    if(D_slack < 0){
-        sum += D_slack;
-        hasNegative = true;
-    }
-    for(size_t j=1;j<weight.size();j++){
-        if(nextStage[j-1].ff->getTimingSlack("D") < 0){
-            sum += nextStage[j-1].ff->getTimingSlack("D");
-            hasNegative = true;
-        }
-    }
-    // get weight
-    // Only set the negative dslack pin weight, if there exist the negative dslack in fanin or fanout
-    if(hasNegative){
-        if(D_slack < 0)
-            weight[0] = D_slack / sum;
-        else
-            weight[0] = 0;
-        for(size_t j=1;j<weight.size();j++){
-            if(nextStage[j-1].ff->getTimingSlack("D") < 0)
-                weight[j] = nextStage[j-1].ff->getTimingSlack("D") / sum;
-            else
-                weight[j] = 0;
-        }
-    }
-    else{
-        for(size_t i=0;i<weight.size();i++)
-            weight[i] = 0.1/weight.size();
-    }
+    gamma = std::abs(mgr.die.getDieBorder().x - mgr.die.getDieOrigin().x) * 0.01;
 }
 
 postBankingObjFunction::postBankingObjFunction(Manager&mgr, std::unordered_map<std::string, FF*>& FF_list, std::unordered_map<string, int>& idx_map, int totalFF, std::vector<FF*>& FFs)
@@ -246,7 +72,7 @@ double postBankingObjFunction::forward(){
                 net++;  
             }
             // output net (only for the ff output to IO, to avoid double calculation)
-            const std::vector<NextStage>& nextStage = cur_ff->getNextStage();
+            const std::vector<NextStage>& nextStage = cur_ff->getNextStageCriticalPath();
             if(nextStage.size()){
                 for(auto& next_p : nextStage){
                     std::string outputInstanceName;
@@ -294,7 +120,7 @@ vector<Coor>& postBankingObjFunction::backward(int step, bool onlyNegative){
         // weight of net
         size_t weightSize = bit;
         for(auto& clusterFF : MBFF->getClusterFF())
-            weightSize += clusterFF->getNextStage().size();
+            weightSize += clusterFF->getNextStageCriticalPath().size();
         std::vector<double> weight(weightSize);
         getWeight(MBFF, weight);
         size_t curWeight = 0;
@@ -310,7 +136,7 @@ vector<Coor>& postBankingObjFunction::backward(int step, bool onlyNegative){
             curWeight++;
             // net of Q pin
             curCoor = cur_ff->physicalFF->getNewCoor() + cur_ff->physicalFF->getPinCoor("Q" + cur_ff->getPhysicalPinName());
-            for(size_t k=0;k<cur_ff->getNextStage().size();k++){
+            for(size_t k=0;k<cur_ff->getNextStageCriticalPath().size();k++){
                 grad_[i].x += weight[curWeight] * ((exp(curCoor.x / gamma) / x_pos[i][net]) - (exp(-curCoor.x / gamma) / x_neg[i][net]));
                 grad_[i].y += weight[curWeight] * ((exp(curCoor.y / gamma) / y_pos[i][net]) - (exp(-curCoor.y / gamma) / y_neg[i][net])); 
                 net++;
@@ -327,17 +153,19 @@ void postBankingObjFunction::getWeight(FF* MBFF, std::vector<double>& weight){
     // weigt by slack
     for(auto cur_ff : MBFF->getClusterFF()){
         double D_slack = cur_ff->physicalFF->getTimingSlack("D" + cur_ff->getPhysicalPinName());
-        const std::vector<NextStage>& nextStage = cur_ff->getNextStage();
+        const std::vector<NextStage>& nextStage = cur_ff->getNextStageCriticalPath();
         // get total
         if(D_slack < 0){
             sum += D_slack;
             hasNegative = true;
         }
         for(size_t j=0;j<nextStage.size();j++){
-            double slack = nextStage[j].ff->physicalFF->getTimingSlack("D" + nextStage[j].ff->getPhysicalPinName());
-            if(slack < 0){
-                sum += slack;
-                hasNegative = true;
+            if( nextStage[j].outputGate == nullptr ||  nextStage[j].ff->isCriticalPath( nextStage[j].pathID)){
+                double slack = nextStage[j].ff->physicalFF->getTimingSlack("D" + nextStage[j].ff->getPhysicalPinName());
+                if(slack < 0){
+                    sum += slack;
+                    hasNegative = true;
+                }
             }
         }
     }
@@ -345,7 +173,7 @@ void postBankingObjFunction::getWeight(FF* MBFF, std::vector<double>& weight){
     size_t curWeight = 0;
     for(auto cur_ff : MBFF->getClusterFF()){
         double D_slack = cur_ff->physicalFF->getTimingSlack("D" + cur_ff->getPhysicalPinName());
-        const std::vector<NextStage>& nextStage = cur_ff->getNextStage();
+        const std::vector<NextStage>& nextStage = cur_ff->getNextStageCriticalPath();
         // get total
         if(D_slack < 0)
             weight[curWeight] = D_slack / sum;
@@ -353,11 +181,13 @@ void postBankingObjFunction::getWeight(FF* MBFF, std::vector<double>& weight){
             weight[curWeight] = 0;
         curWeight++;
         for(size_t j=0;j<nextStage.size();j++){
-            double slack = nextStage[j].ff->physicalFF->getTimingSlack("D" + nextStage[j].ff->getPhysicalPinName());
-            if(slack < 0)
-                weight[curWeight] = slack / sum;
-            else
-                weight[curWeight] = 0;
+            weight[curWeight] = 0;
+            if( nextStage[j].outputGate == nullptr ||  nextStage[j].ff->isCriticalPath( nextStage[j].pathID)){
+                double slack = nextStage[j].ff->physicalFF->getTimingSlack("D" + nextStage[j].ff->getPhysicalPinName());
+                if(slack < 0){
+                    weight[curWeight] = slack / sum;
+                }
+            }
             curWeight++;
         }
     }
@@ -439,7 +269,6 @@ void Gradient::Step(bool onlyNegative) {
         Coor coor = ff->getCoor();
         coor.x = coor.x + alpha_ * dir[idx].x;
         coor.y = coor.y + alpha_ * dir[idx].y;
-        ff->setCoor(coor);
         ff->setNewCoor(coor);
     }
 
@@ -447,4 +276,5 @@ void Gradient::Step(bool onlyNegative) {
     grad_prev_ = obj_.grad();
     dir_prev_ = dir;
     step_++;
+    alpha_ *= 0.99;
 }
