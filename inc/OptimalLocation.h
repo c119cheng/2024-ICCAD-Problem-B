@@ -23,16 +23,6 @@ class objFunction{
         virtual void getWeight(FF* cur_ff, vector<double>& weight) = 0;
 };
 
-class preprocessObjFunction : public objFunction{
-    public:
-        preprocessObjFunction(Manager&mgr, std::unordered_map<std::string, FF*>& FF_list, 
-                            std::unordered_map<string, int>& idx_map, int totalFF, std::vector<FF*>& FFs);
-        ~preprocessObjFunction();
-        double forward() override;
-        vector<Coor>& backward(int step, bool onlyNegative) override;
-        void getWeight(FF* cur_ff, vector<double>& weight) override;
-};
-
 class postBankingObjFunction : public objFunction{
     public:
         postBankingObjFunction(Manager&mgr, std::unordered_map<std::string, FF*>& FF_list, 

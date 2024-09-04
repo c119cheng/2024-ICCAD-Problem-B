@@ -51,14 +51,13 @@ void Manager::preprocess(){
         Cell* cell = curFF->getCell();
         newFF->setInstanceName(instanceName);
         newFF->setCoor(coor);
-        newFF->setNewCoor(coor);
         newFF->setClkIdx(clkIdx);
         newFF->setCell(cell);
         newFF->setClusterSize(1);
         newFF->addClusterFF(curFF, 0);
         newFF->setFixed(curFF->getFixed());
         curFF->setPhysicalFF(newFF, 0);
-
+        newFF->setNewCoor(coor);
         FF_Map[instanceName] = newFF;
     }
 }
@@ -293,6 +292,7 @@ FF* Manager::bankFF(Coor newbankCoor, Cell* bankCellType, std::vector<FF*> FFToB
         newFF->addClusterFF(FFs[i], i);
     }
     assignSlot(newFF);
+    newFF->updateAllNextCriticalPath();
     return newFF;
 }
 
@@ -696,7 +696,7 @@ double Manager::getCostDiff(Coor newbankCoor, Cell* bankCellType, std::vector<FF
         }
     }
     assignSlot(newFF);
-
+    // newFF->updateAllNextCriticalPath();
     double cost = newFF->getCost();
     for(size_t i=0;i<FFToBank.size();i++){
         for(size_t j=0;j<FFToBank[i]->getClusterFF().size();j++){
@@ -707,7 +707,21 @@ double Manager::getCostDiff(Coor newbankCoor, Cell* bankCellType, std::vector<FF
 
     double oldCost = 0;
     for(auto& MBFF : FFToBank){
+        // MBFF->updateAllNextCriticalPath();
         oldCost += MBFF->getCost();
     }
     return cost - oldCost;
+}
+
+void Manager::updateAllCriticalPath(){
+    vector<FF*> FFs(FF_Map.size());
+    size_t idx=0;
+    for(auto& ff_m : FF_Map){
+        FFs[idx] = ff_m.second;
+        idx++;
+    }
+    #pragma omp parallel for num_threads(MAX_THREADS)
+    for(size_t i=0;i<FFs.size();i++){
+        FFs[i]->updateAllCriticalPath();
+    }
 }

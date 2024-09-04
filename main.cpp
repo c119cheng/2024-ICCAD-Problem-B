@@ -18,7 +18,9 @@ int main(int argc, char *argv[]){
     mgr.libScoring();
     mgr.getOverallCost(cost_verbose, 0);
     mgr.preprocess();
-    mgr.getOverallCost(cost_verbose, 0);
+    mgr.updateAllCriticalPath();
+    mgr.preprocessor->optimal_FF_location();
+    mgr.getOverallCost(cost_verbose, 0, 0);
     mgr.dumpVisual("Preprocessor.out");
 
     // mgr.meanshift();
@@ -26,7 +28,8 @@ int main(int argc, char *argv[]){
     // mgr.dumpVisual("Meanshift.out");
 
     mgr.preLegalize();
-    mgr.getOverallCost(cost_verbose, 1);
+    mgr.updateAllCriticalPath();
+    mgr.getOverallCost(cost_verbose, 0, 1);
     mgr.dumpVisual("PreLegalize.out");
 
     mgr.banking();
@@ -34,16 +37,19 @@ int main(int argc, char *argv[]){
     mgr.dumpVisual("Banking.out");
 
     mgr.postBankingOptimize();
-    mgr.getOverallCost(cost_verbose, 0);
+    mgr.updateAllCriticalPath();
+    mgr.getOverallCost(cost_verbose, 0, 0);
     mgr.dumpVisual("PostCG.out");
 
     mgr.legalize();
-    mgr.getOverallCost(cost_verbose, 1);
+    mgr.updateAllCriticalPath();
+    mgr.getOverallCost(cost_verbose, 0, 1);
     mgr.dumpVisual("Legalize.out");
     mgr.checker();
 
     mgr.detailplacement();
-    mgr.getOverallCost(cost_verbose, 1);
+    mgr.updateAllCriticalPath();
+    mgr.getOverallCost(cost_verbose, 0, 1);
     mgr.dumpVisual("DetailPlacement.out");
     mgr.checker();
 

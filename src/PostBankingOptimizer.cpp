@@ -45,7 +45,7 @@ void postBankingOptimizer::run(){
     const double terminateThreshold = 0.001;
     for(i=0;i<=1000;i++){
         optimizer.Step(true);
-        
+        mgr.updateAllCriticalPath();
         // update original data
         if(i % 25 == 0){
             #ifndef NDEBUG
@@ -55,17 +55,18 @@ void postBankingOptimizer::run(){
             #endif
         }
         double newTNS = mgr.getTNS();
-        if(abs(newTNS - prevTNS) / abs(prevTNS) < terminateThreshold || newTNS >= prevTNS){
+        if(abs(newTNS - prevTNS) / abs(prevTNS) < terminateThreshold){
             #ifndef NDEBUG
             std::cout << "\n\nGradient Convergen at " << i << " iteration." << std::endl;
             std::cout << "Final statistic" << std::endl;
             std::cout << "\tTNS : " << mgr.getTNS() << std::endl;
             #endif
-            if(newTNS > prevTNS && i==0)
-                for(size_t j=0;j<FFsFixed.size();j++){
-                    FFsFixed[j]->setNewCoor(oldCoor[j]);
-                    FFsFixed[j]->setCoor(oldCoor[j]);
-                }
+            // if(newTNS > prevTNS && i==0){
+            //     for(size_t j=0;j<FFsFixed.size();j++){
+            //         FFsFixed[j]->setNewCoor(oldCoor[j]);
+            //     }
+            //     mgr.updateAllCriticalPath();
+            // }
             break;
         }
         prevTNS = newTNS;
