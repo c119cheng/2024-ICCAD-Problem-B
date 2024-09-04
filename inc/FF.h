@@ -154,7 +154,7 @@ public:
     double getCost(); // return overall cost of MBFF(can be 1 bit), include TNS of Q pin (next stage FFs)
     // ######################################### used in cluster ########################################################
     void sortNeighbors();
-    double shift(std::vector<FF *> &FFs);     // shift the ff and return the euclidean distance from origin coordinate
+    double shift(const std::vector<FF *> &FFs);     // shift the ff and return the euclidean distance from origin coordinate
     // ######################################### used in cluster ########################################################
 
 

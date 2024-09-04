@@ -21,18 +21,18 @@ void DetailPlacement::run(){
     GlobalSwap();
     GlobalSwap();
 
-    // by c119cheng
-    mgr.getOverallCost(true, 0, 1);
-    Timer t = Timer();
-    t.start();
-    DetailAssignmentMBFF(); // for same clk
-    t.stop();
-    Timer tt = Timer();
+    // // by c119cheng
+    // mgr.getOverallCost(true, 1);
+    // Timer t = Timer();
+    // t.start();
+    // DetailAssignmentMBFF(); // for same clk
+    // t.stop();
+    // Timer tt = Timer();
     
-    mgr.getOverallCost(true, 0, 1);
-    tt.start();
-    ChangeCell();
-    tt.stop();
+    // mgr.getOverallCost(true, 1);
+    // tt.start();
+    // ChangeCell();
+    // tt.stop();
 }
 
 void DetailPlacement::BuildGlobalRtreeMaps(){
@@ -225,7 +225,6 @@ void DetailPlacement::DetailAssignmentMBFF(){
                             cost[idx][j] += nextFF.ff->getMoveTNS(nextFF.pathID, newInput);
                         }
                         else{
-                            Coor newCoorD;
                             newCoorD = nextFF.ff->getPhysicalFF()->getNewCoor() + nextFF.ff->getPhysicalFF()->getPinCoor("D" + nextFF.ff->getPhysicalPinName());
                             double old_hpwl = HPWL(nextFF.ff->getOriginalD(), originalInput);
                             double new_hpwl = HPWL(newCoorD, newInput);

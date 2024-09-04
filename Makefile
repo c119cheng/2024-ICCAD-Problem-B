@@ -8,11 +8,16 @@ WARNINGS = -g -Wall -static
 
 # Valgrind for memory issue
 CHECKCC = valgrind
-CHECKFLAGS = --leak-check=full -s --show-leak-kinds=all --track-origins=yes
+CHECKFLAGS = --leak-check=full -s --show-leak-kinds=all --track-origins=yes --log-file="valgrind.log"
 
 # Cppcheck for static analysis
 CPPCHECKCC = cppcheck
-CPPCHECKFLAGS = --enable=all --inconclusive --std=c++11 --language=c++ --suppress=missingIncludeSystem --suppress=style --suppress=unusedFunction --suppress=unreadVariable --suppress=unmatchedSuppression --suppress=unusedStructMember --suppress=functionConst
+CPPCHECKFLAGS = --enable=all --inconclusive --std=c++11 --language=c++ \
+				--suppress=missingIncludeSystem --suppress=style --suppress=unusedFunction \
+				--suppress=unreadVariable --suppress=unmatchedSuppression \
+				--suppress=unusedStructMember --suppress=functionConst \
+				--suppress=useStlAlgorithm \
+				#--output-file=cppcheck_log.txt
 
 # Checker
 SANITY_CHECKER := checker/sanity
@@ -131,8 +136,11 @@ run14: setup
 run15: setup
 	$(call RUN_TEST,testcase/testcase2_upright.txt)
 
+run16: setup
+	$(call RUN_TEST,testcase/testcase1_MBFF_LIB.txt)
+
 # Target to run all tests
-runall: run1 run2 run3 run4 run5 run6 run7 run8 run9 run10 run11 run12 run13 run14 run15
+runall: run1 run2 run3 run4 run5 run6 run7 run8 run9 run10 run11 run12 run13 run14 run15 run16
 
 drawALL:
 	./drawDie/drawDie -i Preprocessor.out -m 1_Preprocessor.png -t Preprocessor -g -p -nl -o

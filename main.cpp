@@ -16,7 +16,7 @@ int main(int argc, char *argv[]){
     Manager mgr;
     mgr.parse(argv[1]);
     mgr.libScoring();
-    mgr.getOverallCost(cost_verbose, 0, 0);
+    mgr.getOverallCost(cost_verbose, 0);
     mgr.preprocess();
     mgr.updateAllCriticalPath();
     mgr.preprocessor->optimal_FF_location();
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]){
     mgr.dumpVisual("PreLegalize.out");
 
     mgr.banking();
-    mgr.getOverallCost(cost_verbose, 0, 1);
+    mgr.getOverallCost(cost_verbose, 0);
     mgr.dumpVisual("Banking.out");
 
     mgr.postBankingOptimize();

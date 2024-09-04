@@ -1,7 +1,7 @@
 #include "OptimalLocation.h"
 
 objFunction::objFunction(Manager&mgr, std::unordered_map<std::string, FF*>& FF_list, std::unordered_map<string, int>& idx_map, int totalFF, std::vector<FF*>& FFs)
-    : mgr(mgr), FF_list(FF_list), idx_map(idx_map),
+    : mgr(mgr), FF_list(FF_list), idx_map(idx_map), loss(0), gamma((mgr.die.getDieBorder().x - mgr.die.getDieOrigin().x) * 0.01),
     x_pos(totalFF), x_neg(totalFF), 
     y_pos(totalFF), y_neg(totalFF),
     FFs(FFs){
@@ -41,7 +41,6 @@ double postBankingObjFunction::forward(){
             // input net
             Coor curCoor(0, 0);
             if(cur_ff->getInputInstances().size() >= 1){
-                assert(cur_ff->getInputInstances().size() == 1 && "FF input should only drive by one instance");
                 std::string inputInstanceName = cur_ff->getInputInstances()["D"][0].first;
                 std::string inputPinName = cur_ff->getInputInstances()["D"][0].second;
                 Coor inputCoor;
@@ -193,7 +192,7 @@ void postBankingObjFunction::getWeight(FF* MBFF, std::vector<double>& weight){
     }
     if(!hasNegative){
         for(size_t i=0;i<weight.size();i++)
-            weight[i] = 0.1/weight.size();
+            weight[i] = 0;
     }
 }
 
@@ -215,7 +214,6 @@ Gradient::Gradient( Manager &mgr,
       mgr(mgr),
       FF_list(FF_list),
       FFs(FFs){
-    Initialize(alpha);
 }
 
 Gradient::~Gradient(){
@@ -232,10 +230,9 @@ void Gradient::Step(bool onlyNegative) {
     obj_.forward();
     obj_.backward(step_, onlyNegative);
     // Compute the Polak-Ribiere coefficient and conjugate directions
-    double beta;                                  // Polak-Ribiere coefficient
+
     if (step_ == 0) {
         // For the first step, we will set beta = 0 and d_0 = -g_0
-        beta = 0.;
         for (size_t i = 0; i < kNumModule; ++i) {
             dir[i].x = -obj_.grad().at(i).x;
             dir[i].y = -obj_.grad().at(i).y;
@@ -254,7 +251,7 @@ void Gradient::Step(bool onlyNegative) {
             t1 += t3.x + t3.y;
             t2 += std::abs(g.x) + std::abs(g.y);
         }
-        beta = t1 / (t2 * t2 + 0.00001);
+        double beta = t1 / (t2 * t2 + 0.00001); // Polak-Ribiere coefficient
         #pragma omp parallel for num_threads(MAX_THREADS)
         for (size_t i = 0; i < kNumModule; ++i) {
             dir[i].x = -obj_.grad().at(i).x + beta * dir_prev_.at(i).x;

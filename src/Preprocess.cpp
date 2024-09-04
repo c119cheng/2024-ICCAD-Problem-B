@@ -1,8 +1,7 @@
 #include "Preprocess.h"
 #include "OptimalLocation.h"
 
-Preprocess::Preprocess(Manager& mgr) : mgr(mgr){
-
+Preprocess::Preprocess(Manager& mgr) : mgr(mgr), changed(false){
 }
 
 Preprocess::~Preprocess(){
@@ -104,7 +103,7 @@ void Preprocess::Build_Circuit_Gragh(){
         NetList[NetIDX] = &n_m.second;
         NetIDX++;
     }
-    #pragma omp parallel for num_threads(MAX_THREADS)
+
     for(size_t i=0;i<NetIDX;i++){
         const Net& n = *NetList[i];
         std::string driving_cell;
@@ -207,7 +206,6 @@ void Preprocess::ChangeCell(){
     // bool forceSmaller = mgr.alpha / (mgr.alpha + mgr.beta + mgr.gamma) > 0.1;
     // debank and save all the FF in logic_FF;
     // which is all one bit ff without technology mapping(no cell library)
-    #pragma omp parallel for num_threads(MAX_THREADS)
     for(size_t i=0;i<FFs.size();i++){
         FF* curFF = FFs[i];
         double bestCost = 0;
